@@ -79,7 +79,9 @@ class StatementFormalizer:
             chat,
             tokenize=True,
             add_generation_prompt=True,
-            return_tensors="pt"
+            return_tensors="pt",
+            padding=True,
+            truncation=True
         ).to(self.model.device)
 
         # Generate
@@ -87,6 +89,7 @@ class StatementFormalizer:
 
         generation_kwargs = {
             "max_new_tokens": self.config.model_config.max_new_tokens,
+            "attention_mask": inputs["attention_mask"]
         }
 
         if self.config.model_config.temperature is not None:
