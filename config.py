@@ -8,7 +8,7 @@ from typing import Optional
 class ModelConfig:
     """Configuration for a language model."""
     model_id: str
-    device_map: str = "auto"
+    device_map: str = {"":"cuda"}
     torch_dtype: str = "bfloat16"
     trust_remote_code: bool = True
     max_new_tokens: int = 1024
@@ -50,11 +50,11 @@ class ProverConfig:
 DEFAULT_FORMALIZER_CONFIG = FormalizerConfig(
     model_config=ModelConfig(
         model_id="Goedel-LM/Goedel-Formalizer-V2-32B",
-        max_new_tokens=1024,
-        temperature=0.9,
-        do_sample=True,
-        top_k=20,
-        top_p=0.95,
+        max_new_tokens=512,
+        # temperature=0.9,
+        # do_sample=True,
+        # top_k=20,
+        # top_p=0.95,
         seed=30
     )
 )
@@ -62,7 +62,7 @@ DEFAULT_FORMALIZER_CONFIG = FormalizerConfig(
 DEFAULT_PROVER_CONFIG = ProverConfig(
     model_config=ModelConfig(
         model_id="Goedel-LM/Goedel-Prover-V2-32B",
-        max_new_tokens=2048,
+        max_new_tokens=512,
         seed=30
     )
 )
