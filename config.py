@@ -11,7 +11,19 @@ class MyClass:
 class ModelConfig:
     """Configuration for a language model."""
     model_id: str
-    device_map: Dict[str, str] = field(default_factory=lambda: {"": "cuda"})
+    device_map: Dict[str, str] = field(default_factory=lambda: {
+        # Embeddings → GPU 0
+        "model.model.embed_in": "cuda:0",
+        # Layers 0–21 → GPU 0
+        **{f"model.model.layers.{i}": "cuda:0" for i in range(0, 22)},
+        # Layers 22–42 → GPU 1
+        **{f"model.model.layers.{i}": "cuda:1" for i in range(22, 43)},
+        # Layers 43–63 → GPU 2
+        **{f"model.model.layers.{i}": "cuda:2" for i in range(43, 64)},
+        # LM head → GPU 2
+        "model.model.embed_out": "cuda:2",
+        "lm_head": "cuda:2"
+    })
     torch_dtype: str = "bfloat16"
     trust_remote_code: bool = True
     max_new_tokens: int = 1024
