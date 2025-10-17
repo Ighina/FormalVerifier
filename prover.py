@@ -107,12 +107,10 @@ class Prover:
                 inputs,
                 attention_mask=attention_mask,
                 max_new_tokens=self.config.model_config.max_new_tokens,
-                **generation_kwargs
             )
         else:
             outputs = self.model.generate(
                 **inputs,
-                max_new_tokens=self.config.model_config.max_new_tokens,
                 **generation_kwargs
             )
 
