@@ -93,7 +93,6 @@ class StatementFormalizer:
 
         generation_kwargs = {
             "max_new_tokens": self.config.model_config.max_new_tokens,
-            "attention_mask": inputs["attention_mask"]
         }
 
         if self.config.model_config.temperature is not None:
