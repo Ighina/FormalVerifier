@@ -1,14 +1,14 @@
 """Configuration classes for the formal verification pipeline."""
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict
 
 
 @dataclass
 class ModelConfig:
     """Configuration for a language model."""
     model_id: str
-    device_map: dict = {"":"cuda"}
+    device_map: Dict[str, str] = {"":"cuda"}
     torch_dtype: str = "bfloat16"
     trust_remote_code: bool = True
     max_new_tokens: int = 1024
