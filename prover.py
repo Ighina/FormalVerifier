@@ -81,6 +81,10 @@ class Prover:
             truncation=True
         ).to(self.model.device)
 
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+            self.model.config.pad_token_id = self.tokenizer.eos_token_id
+
         # Generate
         start_time = time.time()
 
@@ -98,7 +102,20 @@ class Prover:
         if self.config.model_config.top_p is not None:
             generation_kwargs["top_p"] = self.config.model_config.top_p
 
-        outputs = self.model.generate(**inputs, **generation_kwargs)
+        if isinstance(inputs, torch.Tensor):
+            attention_mask = torch.ones_like(inputs)
+            outputs = self.model.generate(
+                inputs,
+                attention_mask=attention_mask,
+                max_new_tokens=self.config.model_config.max_new_tokens,
+                **generation_kwargs
+            )
+        else:
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=self.config.model_config.max_new_tokens,
+                **generation_kwargs
+            )
 
         elapsed_time = time.time() - start_time
 
