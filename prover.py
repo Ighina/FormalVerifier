@@ -89,7 +89,10 @@ class Prover:
         start_time = time.time()
 
         generation_kwargs = {
-            "max_new_tokens": self.config.model_config.max_new_tokens,
+        "max_new_tokens": self.config.model_config.max_new_tokens,
+        "use_cache": True,  # 🚀 crucial for speed
+        "pad_token_id": self.model.config.pad_token_id,
+        "eos_token_id": self.tokenizer.eos_token_id,
         }
 
         if self.config.model_config.temperature is not None:
@@ -106,7 +109,7 @@ class Prover:
             outputs = self.model.generate(
                 inputs,
                 attention_mask=attention_mask,
-                max_new_tokens=self.config.model_config.max_new_tokens,
+                **generation_kwargs
             )
         else:
             outputs = self.model.generate(
