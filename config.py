@@ -11,7 +11,7 @@ class ModelConfig:
     device_map: str = "auto"
     torch_dtype: str = "bfloat16"
     trust_remote_code: bool = True
-    max_new_tokens: int = 16384
+    max_new_tokens: int = 1024
     temperature: Optional[float] = None
     do_sample: bool = False
     top_k: Optional[int] = None
@@ -50,7 +50,7 @@ class ProverConfig:
 DEFAULT_FORMALIZER_CONFIG = FormalizerConfig(
     model_config=ModelConfig(
         model_id="Goedel-LM/Goedel-Formalizer-V2-32B",
-        max_new_tokens=16384,
+        max_new_tokens=1024,
         temperature=0.9,
         do_sample=True,
         top_k=20,
@@ -62,7 +62,7 @@ DEFAULT_FORMALIZER_CONFIG = FormalizerConfig(
 DEFAULT_PROVER_CONFIG = ProverConfig(
     model_config=ModelConfig(
         model_id="Goedel-LM/Goedel-Prover-V2-32B",
-        max_new_tokens=32768,
+        max_new_tokens=2048,
         seed=30
     )
 )
