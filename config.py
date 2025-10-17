@@ -13,7 +13,7 @@ class ModelConfig:
     model_id: str
     device_map: Dict[str, str] = field(default_factory=lambda: {
         # Embeddings → GPU 0
-        "model.model.embed_in": "cuda:0",
+        "model.embed_tokens": "cuda:0",
         # Layers 0–21 → GPU 0
         **{f"model.model.layers.{i}": "cuda:0" for i in range(0, 22)},
         # Layers 22–42 → GPU 1
