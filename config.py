@@ -1,7 +1,7 @@
 """Configuration classes for the formal verification pipeline."""
 
-from dataclasses import dataclass
-from typing import Optional, Dict, field
+from dataclasses import dataclass, field
+from typing import Optional, Dict
 
 @dataclass
 class MyClass:
