@@ -98,7 +98,7 @@ class Prover:
         if self.config.model_config.top_p is not None:
             generation_kwargs["top_p"] = self.config.model_config.top_p
 
-        outputs = self.model.generate(inputs, **generation_kwargs)
+        outputs = self.model.generate(**inputs, **generation_kwargs)
 
         elapsed_time = time.time() - start_time
 
