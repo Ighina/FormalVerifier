@@ -1,14 +1,17 @@
 """Configuration classes for the formal verification pipeline."""
 
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Optional, Dict, field
 
+@dataclass
+class MyClass:
+    device_map: Dict[str, str] = field(default_factory=dict) # CORRECT: Uses default_factory
 
 @dataclass
 class ModelConfig:
     """Configuration for a language model."""
     model_id: str
-    device_map: Dict[str, str] = {"":"cuda"}
+    device_map: Dict[str, str] = field(default_factory=lambda: {"": "cuda"})
     torch_dtype: str = "bfloat16"
     trust_remote_code: bool = True
     max_new_tokens: int = 1024
