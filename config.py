@@ -8,7 +8,7 @@ from typing import Optional
 class ModelConfig:
     """Configuration for a language model."""
     model_id: str
-    device_map: str = {"":"cuda"}
+    device_map: dict = {"":"cuda"}
     torch_dtype: str = "bfloat16"
     trust_remote_code: bool = True
     max_new_tokens: int = 1024
