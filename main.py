@@ -143,7 +143,8 @@ class VerificationRunner:
                             self.results.append(result)
                             self.processed_ids.add(result["id"])
 
-                        pbar.update(1)
+                    # Update progress bar once per batch
+                    pbar.update(len(batch_results))
 
                     # Save periodically
                     if (len(self.results) - processed_count_before) % self.save_frequency == 0:
