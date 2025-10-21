@@ -101,3 +101,26 @@ class DatasetLoader:
             self.load()
 
         return self._process_item(idx, self.dataset[idx])
+
+    def get_batches(self, batch_size: int, start: int = 0, end: Optional[int] = None) -> Iterator[list[Dict[str, Any]]]:
+        """
+        Iterate through the dataset in batches.
+
+        Args:
+            batch_size: Number of items per batch
+            start: Starting index (inclusive)
+            end: Ending index (exclusive), None for end of dataset
+
+        Yields:
+            Batches of processed dataset items
+        """
+        if self.dataset is None:
+            self.load()
+
+        end = end or len(self.dataset)
+        for batch_start in range(start, min(end, len(self.dataset)), batch_size):
+            batch_end = min(batch_start + batch_size, min(end, len(self.dataset)))
+            batch = []
+            for idx in range(batch_start, batch_end):
+                batch.append(self._process_item(idx, self.dataset[idx]))
+            yield batch

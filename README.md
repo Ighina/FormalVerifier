@@ -112,7 +112,9 @@ print(f"Full formalization output: {result.formalization_output}")
 
 ## Batch Processing
 
-Process entire datasets through the verification pipeline:
+Process entire datasets through the verification pipeline with advanced features:
+
+### Basic Usage
 
 ```bash
 # Process first 100 items from GSM8K training set
@@ -128,16 +130,53 @@ python main.py --dataset gsm8k --output-dir my_results --save-frequency 5
 python main.py --dataset gsm8k --no-skip-errors
 ```
 
+### Advanced Batch Processing
+
+```bash
+# Process with larger batch size for better throughput
+python main.py --dataset gsm8k --batch-size 10 --start 0 --end 100
+
+# Resume from interrupted run
+python main.py --dataset gsm8k --resume --output-dir output/gsm8k_20250121_143022
+
+# Process with custom save frequency
+python main.py --dataset gsm8k --save-frequency 20 --start 0 --end 500
+```
+
+### Resumption Feature
+
+If your batch processing is interrupted, you can resume from where you left off:
+
+1. Note the output directory path from the original run (e.g., `output/gsm8k_20250121_143022`)
+2. Run with the `--resume` flag and specify the exact output directory:
+   ```bash
+   python main.py --dataset gsm8k --resume --output-dir output/gsm8k_20250121_143022
+   ```
+
+The runner will:
+- Load existing results and errors
+- Skip already processed items
+- Continue from where it left off
+- Append new results to the same files
+
 ### Command Line Arguments
 
+**Dataset arguments:**
 - `--dataset`: Dataset name (default: gsm8k)
 - `--split`: Dataset split - train/test (default: train)
 - `--start`: Starting index (default: 0)
 - `--end`: Ending index (default: None, processes all)
+
+**Output arguments:**
 - `--output-dir`: Output directory (default: output)
 - `--problem-prefix`: Prefix for theorem names (default: problem)
+
+**Processing arguments:**
 - `--save-frequency`: Save every N items (default: 10)
-- `--no-skip-errors`: Stop on first error
+- `--batch-size`: Number of items per batch (default: 1)
+- `--num-workers`: Number of parallel workers (default: 1, sequential)
+- `--resume`: Resume from existing results in output directory
+- `--no-skip-errors`: Stop on first error instead of skipping
 
 ### Output Format
 

@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing as mp
 
 from dataset_loader import DatasetLoader
 from pipeline import FormalVerificationPipeline
@@ -21,7 +23,10 @@ class VerificationRunner:
         pipeline: FormalVerificationPipeline,
         output_dir: str = "output",
         save_frequency: int = 10,
-        skip_on_error: bool = True
+        skip_on_error: bool = True,
+        batch_size: int = 1,
+        num_workers: int = 1,
+        resume: bool = False
     ):
         """
         Initialize the verification runner.
@@ -31,14 +36,25 @@ class VerificationRunner:
             output_dir: Directory to save results
             save_frequency: Save results every N items
             skip_on_error: If True, skip items that cause errors
+            batch_size: Number of items to process in each batch
+            num_workers: Number of parallel workers (1 for sequential)
+            resume: If True, resume from existing results
         """
         self.pipeline = pipeline
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.save_frequency = save_frequency
         self.skip_on_error = skip_on_error
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.resume = resume
         self.results: List[Dict[str, Any]] = []
         self.errors: List[Dict[str, Any]] = []
+        self.processed_ids: set = set()
+
+        # Load existing results if resuming
+        if self.resume:
+            self._load_existing_results()
 
     def process_dataset(
         self,
@@ -68,21 +84,41 @@ class VerificationRunner:
         dataset_items = list(dataset_loader.get_subset(start_idx, end_idx))
         total_items = len(dataset_items)
 
-        print(f"Processing {total_items} items from {dataset_loader.dataset_name}...")
-        print(f"Results will be saved to: {self.output_dir}\n")
+        # Filter out already processed items if resuming
+        skipped = 0
+        if self.resume:
+            original_count = len(dataset_items)
+            dataset_items = [item for item in dataset_items if item["id"] not in self.processed_ids]
+            skipped = original_count - len(dataset_items)
+            if skipped > 0:
+                print(f"Resuming: skipping {skipped} already processed items")
+
+        print(f"Processing {len(dataset_items)} items from {dataset_loader.dataset_name}...")
+        print(f"Results will be saved to: {self.output_dir}")
+        if self.batch_size > 1:
+            print(f"Batch size: {self.batch_size}")
+        if self.num_workers > 1:
+            print(f"Parallel workers: {self.num_workers}")
+        print()
 
         # Process each item
         successful = 0
         failed = 0
+        processed_count_before = len(self.results)
 
         for item in tqdm(dataset_items, desc="Processing", unit="problem"):
+            # Skip if already processed
+            if item["id"] in self.processed_ids:
+                continue
+
             try:
                 result = self._process_item(item, problem_name_prefix)
                 self.results.append(result)
+                self.processed_ids.add(item["id"])
                 successful += 1
 
                 # Save periodically
-                if len(self.results) % self.save_frequency == 0:
+                if (len(self.results) - processed_count_before) % self.save_frequency == 0:
                     self._save_results()
 
             except Exception as e:
@@ -94,6 +130,7 @@ class VerificationRunner:
                     "error_type": type(e).__name__
                 }
                 self.errors.append(error_info)
+                self.processed_ids.add(item["id"])
 
                 if not self.skip_on_error:
                     print(f"\nError processing item {item['id']}: {e}")
@@ -112,7 +149,8 @@ class VerificationRunner:
             "total_items": total_items,
             "successful": successful,
             "failed": failed,
-            "success_rate": successful / total_items if total_items > 0 else 0,
+            "skipped": skipped,
+            "success_rate": successful / len(dataset_items) if len(dataset_items) > 0 else 0,
             "output_file": str(self.output_dir / "results.json")
         }
 
@@ -183,7 +221,26 @@ class VerificationRunner:
         print(f"Results saved to: {summary['output_file']}")
         if self.errors:
             print(f"Errors saved to:  {self.output_dir / 'errors.json'}")
+        if self.resume and summary.get('skipped', 0) > 0:
+            print(f"Skipped (already processed): {summary['skipped']}")
         print("=" * 80)
+
+    def _load_existing_results(self):
+        """Load existing results from previous runs for resumption."""
+        results_file = self.output_dir / "results.json"
+        errors_file = self.output_dir / "errors.json"
+
+        if results_file.exists():
+            with open(results_file, 'r', encoding='utf-8') as f:
+                self.results = json.load(f)
+                self.processed_ids = {r["id"] for r in self.results}
+            print(f"Loaded {len(self.results)} existing results for resumption.")
+
+        if errors_file.exists():
+            with open(errors_file, 'r', encoding='utf-8') as f:
+                self.errors = json.load(f)
+                self.processed_ids.update({e["id"] for e in self.errors})
+            print(f"Loaded {len(self.errors)} existing errors for resumption.")
 
 
 def main():
@@ -244,12 +301,37 @@ def main():
         action="store_true",
         help="Stop on first error instead of skipping"
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Number of items to process per batch (default: 1)"
+    )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=1,
+        help="Number of parallel workers for processing (default: 1, sequential)"
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from existing results in output directory"
+    )
 
     args = parser.parse_args()
 
-    # Create output directory with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join(args.output_dir, f"{args.dataset}_{timestamp}")
+    # Create output directory with timestamp (unless resuming)
+    if args.resume:
+        # For resume, user should provide the exact output directory path
+        output_dir = args.output_dir
+        if not os.path.exists(output_dir):
+            print(f"Error: Output directory '{output_dir}' does not exist. Cannot resume.")
+            print("To resume, provide the exact path to the existing output directory.")
+            return
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = os.path.join(args.output_dir, f"{args.dataset}_{timestamp}")
 
     # Initialize components
     print("Initializing components...")
@@ -264,7 +346,10 @@ def main():
         pipeline=pipeline,
         output_dir=output_dir,
         save_frequency=args.save_frequency,
-        skip_on_error=not args.no_skip_errors
+        skip_on_error=not args.no_skip_errors,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        resume=args.resume
     )
 
     # Run processing

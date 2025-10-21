@@ -3,13 +3,18 @@
 from dataclasses import dataclass, field
 from typing import Optional, Dict
 
+
 @dataclass
 class MyClass:
-    device_map: Dict[str, str] = field(default_factory=dict) # CORRECT: Uses default_factory
+    device_map: Dict[str, str] = field(
+        default_factory=dict
+    )  # CORRECT: Uses default_factory
+
 
 @dataclass
 class ModelConfig:
     """Configuration for a language model."""
+
     model_id: str
     # device_map: Dict[str, str] = field(default_factory=lambda: {
     #     # Embeddings → GPU 0
@@ -38,6 +43,7 @@ class ModelConfig:
 @dataclass
 class FormalizerConfig:
     """Configuration for statement formalization."""
+
     model_config: ModelConfig
     prompt_template: str = (
         "Please autoformalize the following natural language problem statement in Lean 4. "
@@ -51,6 +57,7 @@ class FormalizerConfig:
 @dataclass
 class ProverConfig:
     """Configuration for theorem proving."""
+
     model_config: ModelConfig
     prompt_template: str = (
         "Complete the following Lean 4 code:\n\n"
@@ -66,19 +73,17 @@ class ProverConfig:
 DEFAULT_FORMALIZER_CONFIG = FormalizerConfig(
     model_config=ModelConfig(
         model_id="Goedel-LM/Goedel-Formalizer-V2-32B",
-        max_new_tokens=512,
+        max_new_tokens=3072,
         # temperature=0.9,
         # do_sample=True,
         # top_k=20,
         # top_p=0.95,
-        seed=30
+        seed=30,
     )
 )
 
 DEFAULT_PROVER_CONFIG = ProverConfig(
     model_config=ModelConfig(
-        model_id="Goedel-LM/Goedel-Prover-V2-32B",
-        max_new_tokens=512,
-        seed=30
+        model_id="Goedel-LM/Goedel-Prover-V2-32B", max_new_tokens=6144, seed=30
     )
 )
