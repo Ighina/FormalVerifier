@@ -137,6 +137,121 @@ class StatementFormalizer:
 
         return formal_statement
 
+    def formalize_batch(
+        self,
+        batch_inputs: list[dict],
+        return_metadata: bool = False
+    ) -> list[dict]:
+        """
+        Convert multiple natural language statements to Lean 4 formal statements in batch.
+
+        Args:
+            batch_inputs: List of dicts with 'informal_statement' and 'problem_name'.
+            return_metadata: If True, return dict with metadata including timing.
+
+        Returns:
+            List of dicts with 'formal_statement', 'full_output', and 'time_seconds'.
+        """
+        if self.model is None:
+            self.load_model()
+
+        # Construct prompts for all inputs
+        prompts = []
+        for inp in batch_inputs:
+            prompt = self.config.prompt_template.format(
+                problem_name=inp["problem_name"],
+                informal_statement=inp["informal_statement"]
+            )
+            prompts.append(prompt)
+
+        # Prepare batch chat inputs
+        chats = [[{"role": "user", "content": prompt}] for prompt in prompts]
+
+        # Tokenize all prompts
+        all_inputs = []
+        for chat in chats:
+            inputs = self.tokenizer.apply_chat_template(
+                chat,
+                tokenize=True,
+                add_generation_prompt=True,
+                return_tensors="pt",
+                padding=True,
+                truncation=True
+            )
+            all_inputs.append(inputs)
+
+        # Pad to same length for batch processing
+        max_len = max(inp.shape[-1] for inp in all_inputs)
+        padded_inputs = []
+        attention_masks = []
+
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+            self.model.config.pad_token_id = self.tokenizer.eos_token_id
+
+        for inp in all_inputs:
+            pad_len = max_len - inp.shape[-1]
+            if pad_len > 0:
+                padding = torch.full((inp.shape[0], pad_len), self.tokenizer.pad_token_id, dtype=inp.dtype)
+                padded_inp = torch.cat([padding, inp], dim=-1)
+                attention_mask = torch.cat([torch.zeros((inp.shape[0], pad_len), dtype=torch.long), torch.ones_like(inp)], dim=-1)
+            else:
+                padded_inp = inp
+                attention_mask = torch.ones_like(inp)
+
+            padded_inputs.append(padded_inp)
+            attention_masks.append(attention_mask)
+
+        # Stack into batch
+        batch_inputs_tensor = torch.cat(padded_inputs, dim=0).to(self.model.device)
+        batch_attention_mask = torch.cat(attention_masks, dim=0).to(self.model.device)
+
+        # Generate
+        start_time = time.time()
+
+        generation_kwargs = {
+            "max_new_tokens": self.config.model_config.max_new_tokens,
+            "use_cache": True,
+            "pad_token_id": self.model.config.pad_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+        }
+
+        if self.config.model_config.temperature is not None:
+            generation_kwargs["temperature"] = self.config.model_config.temperature
+        if self.config.model_config.do_sample:
+            generation_kwargs["do_sample"] = True
+        if self.config.model_config.top_k is not None:
+            generation_kwargs["top_k"] = self.config.model_config.top_k
+        if self.config.model_config.top_p is not None:
+            generation_kwargs["top_p"] = self.config.model_config.top_p
+
+        outputs = self.model.generate(
+            batch_inputs_tensor,
+            attention_mask=batch_attention_mask,
+            **generation_kwargs
+        )
+
+        elapsed_time = time.time() - start_time
+
+        # Decode outputs
+        model_output_texts = self.tokenizer.batch_decode(outputs, skip_special_tokens=False)
+
+        # Extract Lean 4 code from all outputs
+        results = []
+        for text in model_output_texts:
+            formal_statement = self._extract_code(text)
+
+            if return_metadata:
+                results.append({
+                    "formal_statement": formal_statement,
+                    "full_output": text,
+                    "time_seconds": elapsed_time / len(batch_inputs)  # Average time per item
+                })
+            else:
+                results.append(formal_statement)
+
+        return results
+
     @staticmethod
     def _extract_code(text_input: str) -> str:
         """

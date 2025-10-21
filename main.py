@@ -101,40 +101,84 @@ class VerificationRunner:
             print(f"Parallel workers: {self.num_workers}")
         print()
 
-        # Process each item
+        # Process in batches
         successful = 0
         failed = 0
         processed_count_before = len(self.results)
 
-        for item in tqdm(dataset_items, desc="Processing", unit="problem"):
-            # Skip if already processed
-            if item["id"] in self.processed_ids:
-                continue
+        # Use batch processing from dataset loader
+        if self.batch_size > 1:
+            # Get batches from dataset
+            batches = list(dataset_loader.get_batches(
+                batch_size=self.batch_size,
+                start=start_idx,
+                end=end_idx
+            ))
 
-            try:
-                result = self._process_item(item, problem_name_prefix)
-                self.results.append(result)
-                self.processed_ids.add(item["id"])
-                successful += 1
+            # Filter out already processed items from batches
+            filtered_batches = []
+            for batch in batches:
+                filtered_batch = [item for item in batch if item["id"] not in self.processed_ids]
+                if filtered_batch:
+                    filtered_batches.append(filtered_batch)
 
-                # Save periodically
-                if (len(self.results) - processed_count_before) % self.save_frequency == 0:
-                    self._save_results()
+            total_items_to_process = sum(len(batch) for batch in filtered_batches)
 
-            except Exception as e:
-                failed += 1
-                error_info = {
-                    "id": item["id"],
-                    "problem": item["problem"],
-                    "error": str(e),
-                    "error_type": type(e).__name__
-                }
-                self.errors.append(error_info)
-                self.processed_ids.add(item["id"])
+            with tqdm(total=total_items_to_process, desc="Processing", unit="problem") as pbar:
+                for batch in filtered_batches:
+                    # Process batch through pipeline
+                    batch_results = self._process_batch(batch, problem_name_prefix)
 
-                if not self.skip_on_error:
-                    print(f"\nError processing item {item['id']}: {e}")
-                    raise
+                    for result in batch_results:
+                        if result.get("error"):
+                            failed += 1
+                            self.errors.append(result)
+                            self.processed_ids.add(result["id"])
+
+                            if not self.skip_on_error:
+                                print(f"\nError processing item {result['id']}: {result['error']}")
+                                raise Exception(result["error"])
+                        else:
+                            successful += 1
+                            self.results.append(result)
+                            self.processed_ids.add(result["id"])
+
+                        pbar.update(1)
+
+                    # Save periodically
+                    if (len(self.results) - processed_count_before) % self.save_frequency == 0:
+                        self._save_results()
+        else:
+            # Single-item processing (original behavior)
+            for item in tqdm(dataset_items, desc="Processing", unit="problem"):
+                # Skip if already processed
+                if item["id"] in self.processed_ids:
+                    continue
+
+                try:
+                    result = self._process_item(item, problem_name_prefix)
+                    self.results.append(result)
+                    self.processed_ids.add(item["id"])
+                    successful += 1
+
+                    # Save periodically
+                    if (len(self.results) - processed_count_before) % self.save_frequency == 0:
+                        self._save_results()
+
+                except Exception as e:
+                    failed += 1
+                    error_info = {
+                        "id": item["id"],
+                        "problem": item["problem"],
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    }
+                    self.errors.append(error_info)
+                    self.processed_ids.add(item["id"])
+
+                    if not self.skip_on_error:
+                        print(f"\nError processing item {item['id']}: {e}")
+                        raise
 
         # Final save
         self._save_results()
@@ -193,6 +237,83 @@ class VerificationRunner:
         }
 
         return result
+
+    def _process_batch(self, batch: List[Dict[str, Any]], problem_name_prefix: str) -> List[Dict[str, Any]]:
+        """
+        Process a batch of dataset items.
+
+        Args:
+            batch: List of dataset items with 'id', 'problem', 'solution'
+            problem_name_prefix: Prefix for theorem names
+
+        Returns:
+            List of result dictionaries (including errors)
+        """
+        results = []
+
+        # Prepare batch inputs
+        batch_inputs = []
+        for item in batch:
+            problem_name = f"{problem_name_prefix}_{item['id']}"
+            solution = item["solution"].split("####")[-1].strip()
+            informal_statement = f"{item['problem']} Show that the solution is {solution}."
+
+            batch_inputs.append({
+                "informal_statement": informal_statement,
+                "problem_name": problem_name,
+                "item": item
+            })
+
+        # Process batch through pipeline
+        try:
+            pipeline_results = self.pipeline.run_batch(
+                batch_inputs=[{
+                    "informal_statement": inp["informal_statement"],
+                    "problem_name": inp["problem_name"]
+                } for inp in batch_inputs],
+                return_full_outputs=False
+            )
+
+            # Construct results
+            for inp, pipeline_result in zip(batch_inputs, pipeline_results):
+                item = inp["item"]
+                if isinstance(pipeline_result, dict) and pipeline_result.get("error"):
+                    # Error occurred
+                    results.append({
+                        "id": item["id"],
+                        "problem": item["problem"],
+                        "error": pipeline_result["error"],
+                        "error_type": pipeline_result.get("error_type", "Unknown")
+                    })
+                else:
+                    # Success
+                    results.append({
+                        "id": item["id"],
+                        "problem": item["problem"],
+                        "solution": item["solution"],
+                        "formal_statement": pipeline_result.formal_statement,
+                        "proof": pipeline_result.proof,
+                        "formalization_time": pipeline_result.formalization_time,
+                        "proving_time": pipeline_result.proving_time,
+                        "total_time": pipeline_result.total_time
+                    })
+
+        except Exception as e:
+            # If batch processing fails entirely, fall back to individual processing
+            for inp in batch_inputs:
+                item = inp["item"]
+                try:
+                    result = self._process_item(item, problem_name_prefix)
+                    results.append(result)
+                except Exception as item_error:
+                    results.append({
+                        "id": item["id"],
+                        "problem": item["problem"],
+                        "error": str(item_error),
+                        "error_type": type(item_error).__name__
+                    })
+
+        return results
 
     def _save_results(self):
         """Save results to JSON file."""

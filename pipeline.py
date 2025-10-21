@@ -150,3 +150,60 @@ class FormalVerificationPipeline:
             formal_statement=formal_statement,
             return_metadata=return_metadata
         )
+
+    def run_batch(
+        self,
+        batch_inputs: list[dict],
+        return_full_outputs: bool = False
+    ) -> list[PipelineResult]:
+        """
+        Run the full verification pipeline on a batch of inputs.
+
+        Args:
+            batch_inputs: List of dicts with 'informal_statement' and 'problem_name'.
+            return_full_outputs: If True, include full model outputs in results.
+
+        Returns:
+            List of PipelineResult objects (one per input).
+        """
+        results = []
+
+        # Step 1: Formalize all statements in batch
+        formalization_inputs = [
+            {
+                "informal_statement": inp["informal_statement"],
+                "problem_name": inp["problem_name"]
+            }
+            for inp in batch_inputs
+        ]
+
+        formalization_results = self.formalizer.formalize_batch(
+            batch_inputs=formalization_inputs,
+            return_metadata=True
+        )
+
+        # Step 2: Prove all formal statements in batch
+        proving_inputs = [
+            result["formal_statement"]
+            for result in formalization_results
+        ]
+
+        proving_results = self.prover.prove_batch(
+            formal_statements=proving_inputs,
+            return_metadata=True
+        )
+
+        # Step 3: Combine results
+        for i, (form_result, prove_result) in enumerate(zip(formalization_results, proving_results)):
+            results.append(PipelineResult(
+                informal_statement=batch_inputs[i]["informal_statement"],
+                formal_statement=form_result["formal_statement"],
+                proof=prove_result["proof"],
+                formalization_time=form_result["time_seconds"],
+                proving_time=prove_result["time_seconds"],
+                total_time=form_result["time_seconds"] + prove_result["time_seconds"],
+                formalization_output=form_result.get("full_output") if return_full_outputs else None,
+                proving_output=prove_result.get("full_output") if return_full_outputs else None
+            ))
+
+        return results
