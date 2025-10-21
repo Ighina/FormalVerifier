@@ -192,7 +192,7 @@ class StatementFormalizer:
 
         # Generate
         start_time = time.time()
-        outputs = self.model.generate(**inputs, **generation_kwargs)
+        outputs = self.model.generate(inputs, **generation_kwargs)
         elapsed_time = time.time() - start_time
 
         # Decode outputs
