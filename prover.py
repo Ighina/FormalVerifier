@@ -38,20 +38,20 @@ class Prover:
         self.tokenizer = AutoTokenizer.from_pretrained(model_config.model_id)
 
         # Convert torch_dtype string to actual dtype
-        dtype = getattr(torch, model_config.torch_dtype) if isinstance(model_config.torch_dtype, str) else model_config.torch_dtype
+        dtype = (
+            getattr(torch, model_config.torch_dtype)
+            if isinstance(model_config.torch_dtype, str)
+            else model_config.torch_dtype
+        )
 
         self.model = AutoModelForCausalLM.from_pretrained(
             model_config.model_id,
             device_map=model_config.device_map,
             torch_dtype=dtype,
-            trust_remote_code=model_config.trust_remote_code
+            trust_remote_code=model_config.trust_remote_code,
         )
 
-    def prove(
-        self,
-        formal_statement: str,
-        return_metadata: bool = False
-    ) -> str | dict:
+    def prove(self, formal_statement: str, return_metadata: bool = False) -> str | dict:
         """
         Generate a proof for a Lean 4 formal statement.
 
@@ -66,9 +66,7 @@ class Prover:
             self.load_model()
 
         # Construct the prompt
-        prompt = self.config.prompt_template.format(
-            formal_statement=formal_statement
-        )
+        prompt = self.config.prompt_template.format(formal_statement=formal_statement)
 
         # Prepare chat input
         chat = [{"role": "user", "content": prompt}]
@@ -78,7 +76,7 @@ class Prover:
             add_generation_prompt=True,
             return_tensors="pt",
             padding=True,
-            truncation=True
+            truncation=True,
         ).to(self.model.device)
 
         if self.tokenizer.pad_token is None:
@@ -89,10 +87,10 @@ class Prover:
         start_time = time.time()
 
         generation_kwargs = {
-        "max_new_tokens": self.config.model_config.max_new_tokens,
-        "use_cache": True,  # 🚀 crucial for speed
-        "pad_token_id": self.model.config.pad_token_id,
-        "eos_token_id": self.tokenizer.eos_token_id,
+            "max_new_tokens": self.config.model_config.max_new_tokens,
+            "use_cache": True,  # 🚀 crucial for speed
+            "pad_token_id": self.model.config.pad_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
         }
 
         if self.config.model_config.temperature is not None:
@@ -107,15 +105,10 @@ class Prover:
         if isinstance(inputs, torch.Tensor):
             attention_mask = torch.ones_like(inputs)
             outputs = self.model.generate(
-                inputs,
-                attention_mask=attention_mask,
-                **generation_kwargs
+                inputs, attention_mask=attention_mask, **generation_kwargs
             )
         else:
-            outputs = self.model.generate(
-                **inputs,
-                **generation_kwargs
-            )
+            outputs = self.model.generate(**inputs, **generation_kwargs)
 
         elapsed_time = time.time() - start_time
 
@@ -129,120 +122,80 @@ class Prover:
             return {
                 "proof": completed_proof,
                 "full_output": model_output_text,
-                "time_seconds": elapsed_time
+                "time_seconds": elapsed_time,
             }
 
         return completed_proof
 
     def prove_batch(
-        self,
-        formal_statements: list[str],
-        return_metadata: bool = False
+        self, formal_statements: list[str], return_metadata: bool = False
     ) -> list[dict]:
         """
         Generate proofs for multiple Lean 4 formal statements in batch.
-
-        Args:
-            formal_statements: List of Lean 4 formal statements with 'sorry'.
-            return_metadata: If True, return dict with metadata including timing.
-
-        Returns:
-            List of dicts with 'proof', 'full_output', and 'time_seconds'.
         """
         if self.model is None:
             self.load_model()
 
-        # Construct prompts for all statements
-        prompts = []
-        for stmt in formal_statements:
-            prompt = self.config.prompt_template.format(formal_statement=stmt)
-            prompts.append(prompt)
+        # Prepare chat prompts
+        chat_templates = [
+            [
+                {
+                    "role": "user",
+                    "content": self.config.prompt_template.format(
+                        formal_statement=stmt
+                    ),
+                }
+            ]
+            for stmt in formal_statements
+        ]
 
-        # Prepare batch chat inputs
-        chats = [[{"role": "user", "content": prompt}] for prompt in prompts]
+        # Batch tokenize efficiently
+        inputs = self.tokenizer.apply_chat_template(
+            chat_templates,
+            tokenize=True,
+            add_generation_prompt=True,
+            padding=True,
+            truncation=True,
+            return_tensors="pt",
+        ).to(self.model.device)
 
-        # Tokenize all prompts
-        all_inputs = []
-        for chat in chats:
-            inputs = self.tokenizer.apply_chat_template(
-                chat,
-                tokenize=True,
-                add_generation_prompt=True,
-                return_tensors="pt",
-                padding=True,
-                truncation=True
-            )
-            all_inputs.append(inputs)
-
-        # Pad to same length for batch processing
-        max_len = max(inp.shape[-1] for inp in all_inputs)
-        padded_inputs = []
-        attention_masks = []
-
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-            self.model.config.pad_token_id = self.tokenizer.eos_token_id
-
-        for inp in all_inputs:
-            pad_len = max_len - inp.shape[-1]
-            if pad_len > 0:
-                padding = torch.full((inp.shape[0], pad_len), self.tokenizer.pad_token_id, dtype=inp.dtype)
-                padded_inp = torch.cat([padding, inp], dim=-1)
-                attention_mask = torch.cat([torch.zeros((inp.shape[0], pad_len), dtype=torch.long), torch.ones_like(inp)], dim=-1)
-            else:
-                padded_inp = inp
-                attention_mask = torch.ones_like(inp)
-
-            padded_inputs.append(padded_inp)
-            attention_masks.append(attention_mask)
-
-        # Stack into batch
-        batch_inputs_tensor = torch.cat(padded_inputs, dim=0).to(self.model.device)
-        batch_attention_mask = torch.cat(attention_masks, dim=0).to(self.model.device)
-
-        # Generate
-        start_time = time.time()
-
+        # Generation configuration
+        gen_cfg = self.config.model_config
         generation_kwargs = {
-            "max_new_tokens": self.config.model_config.max_new_tokens,
+            "max_new_tokens": gen_cfg.max_new_tokens,
             "use_cache": True,
             "pad_token_id": self.model.config.pad_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
         }
-
-        if self.config.model_config.temperature is not None:
-            generation_kwargs["temperature"] = self.config.model_config.temperature
-        if self.config.model_config.do_sample:
+        if gen_cfg.temperature is not None:
+            generation_kwargs["temperature"] = gen_cfg.temperature
+        if gen_cfg.do_sample:
             generation_kwargs["do_sample"] = True
-        if self.config.model_config.top_k is not None:
-            generation_kwargs["top_k"] = self.config.model_config.top_k
-        if self.config.model_config.top_p is not None:
-            generation_kwargs["top_p"] = self.config.model_config.top_p
+        if gen_cfg.top_k is not None:
+            generation_kwargs["top_k"] = gen_cfg.top_k
+        if gen_cfg.top_p is not None:
+            generation_kwargs["top_p"] = gen_cfg.top_p
 
-        outputs = self.model.generate(
-            batch_inputs_tensor,
-            attention_mask=batch_attention_mask,
-            **generation_kwargs
-        )
-
+        # Generate
+        start_time = time.time()
+        outputs = self.model.generate(**inputs, **generation_kwargs)
         elapsed_time = time.time() - start_time
 
         # Decode outputs
-        model_output_texts = self.tokenizer.batch_decode(outputs, skip_special_tokens=False)
+        model_output_texts = self.tokenizer.batch_decode(
+            outputs, skip_special_tokens=True
+        )
 
-        # Extract proofs from all outputs
+        # Extract proofs
         results = []
         for text in model_output_texts:
-            completed_proof = self._extract_proof(text)
-
+            proof = self._extract_proof(text)
             if return_metadata:
-                results.append({
-                    "proof": completed_proof,
-                    "full_output": text,
-                    "time_seconds": elapsed_time / len(formal_statements)  # Average time per item
-                })
+                results.append(
+                    {"proof": proof, "full_output": text, "time_seconds": elapsed_time}
+                )
             else:
-                results.append(completed_proof)
+                results.append(proof)
 
         return results
 
@@ -259,7 +212,7 @@ class Prover:
         """
         try:
             # Try to extract code blocks
-            matches = re.findall(r'```lean4\n(.*?)\n```', text_input, re.DOTALL)
+            matches = re.findall(r"```lean4\n(.*?)\n```", text_input, re.DOTALL)
             if matches:
                 return matches[-1].strip()
 
